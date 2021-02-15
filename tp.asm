@@ -34,9 +34,11 @@ extern  printf
 
 section	.data
     msjInicio			                db	'Bienvenido al TP 1 EJ 8',0
-    msjIngCantidadDePaquetes		    db	'Ingrese la cantidad de paquetes a trasladar: ',0
+    msjIngCantidadDePaquetes		    db	'Ingrese la cantidad de paquetes a trasladar 1 - 20: ',0
     msjIngPeso              		    db	'Ingrese el peso del paquete entre 1 - 15: ',0
     msjValoresAgregados                 db	'Valores Agregados son: ',0
+
+    inicioPaqueteMsj                 db	'[',0
 
 
     lugaresMensaje					    db	"Ingrese el numero del destino: 1)Mar del Plata, 2)Bariloche 3)Posadas.",0
@@ -46,6 +48,11 @@ section	.data
     msjImpNumCantidadDePaquetes         db	'Usted ingreso %i paquetes a trasladar',10,0
 
     msjDebug                            db	'peso %i',10,0
+
+    saltoLinea db '',0
+
+    msjElementoResulatdo                db	'%i ',0
+
     msjDestino                          db	'Destino: %i',10,0
     msjDebug2                           db	'Peso %i destino %s',10,0
     msjParaDestino                      db  'Para el destino %s tenemos:',10,0
@@ -55,15 +62,27 @@ section	.data
     vecDestinos	                        times 20 dw 0
     posicion		                    dq	1
     posicionY		                    dq	1
+    posicionSuma                        dq  1
     destinoPaqueteActualName            db  'XXXXXXXXXXXXX',0
+    cambio                              db  'N',0
+
+    vecActual                           times 20 dw 0
+    resultado                           times 39 dw 0
+
+    actual  dw 0
+
 
 section .bss
     buffer		                resb	10
     cantidadDePaquetes		    resq	1
+    cantidadDeElementosVector   resq	1
     contador	                resq	1
     contadorY	                resq	1
+    contadorSuma	            resq	1
     pesoPaqueteActual           resq    1
     destinoPaqueteActual        resq    1
+
+    suma                        resw    1
     
     
 
@@ -286,9 +305,7 @@ mostrarPesosPorDestino:
 	mov		rdi,msjParaDestino
 	call	printf
 
-
-  
-    call pepe
+    call mostrarPaqueteActualPorCiudad
 
 
     inc qword[posicion]
@@ -298,16 +315,16 @@ mostrarPesosPorDestino:
 
     ret
 
-pepe:
+mostrarPaqueteActualPorCiudad:
     ; mov rcx,qword[posicion2]
     call	checkAlign      ;no va en Windows
     sub		rsp,[plusRsp]   ;sub rsp,32
 
     mov qword[posicionY],1
     mov rcx,[cantidadDePaquetes] ;son N paquetes
+    mov qword[cantidadDeElementosVector],0 ;inicio en 0 elementos
     loopPaqueteActual:
         mov		qword[contadorY],rcx 
-
         
         mov rdi,qword[posicionY]
         call obtenerDatosParaMostrar
@@ -318,10 +335,10 @@ pepe:
 
         JNE seguir
 
-        ; mov		rdi,msjDebug
-        ; mov		rsi,[pesoPaqueteActual]
-        ; call	printf
-
+        ;agrego un elemento a recorrer
+        inc qword[cantidadDeElementosVector]
+        
+        call agregarVecActual
 
         mov rax,qword[destinoPaqueteActual]
 
@@ -340,14 +357,204 @@ pepe:
         loop loopPaqueteActual
 
 
+        ;aca ya tengo el vec con todos los elementes para ese destino en vecActual
+
+        call ordenarVectorActual
+        call crearPaquetes
+        call mostrarVectorActual
+        ; mov rdi,saltoLinea
+        ; call puts
         add		rsp,[plusRsp]   ;sub rsp,32
         ret
 
 
+mostrarVectorActual:
+    call	checkAlign      ;no va en Windows
+    sub		rsp,[plusRsp]   ;sub rsp,32
+
+    mov qword[posicionY],1
+    mov rcx,39 ;son N paquetes
+    CMP qword[cantidadDeElementosVector],0
+    JE finMostrarVectorActual
+    loopmostrarVectorActual:
+        mov     byte[cambio],"Y"
+        MOV qword[contadorY],rcx
+
+        mov		rcx,[posicionY]	;rcx = posicion
+	    dec		rcx							;(posicion-1)
+	    imul	ebx,ecx,2				;(posicion-1)*longElem
+
+        mov		ax,[resultado+ebx]	;ax = elemento (2 bytes / word)
+
+        cwde									;eax= elemento (4 bytes / doble word)
+	    cdqe	    
+
+        mov word[actual],ax
+
+        CMP RAX,0
+        JE mostrarSiguiente
+    
+
+        CMP RAX,-1
+        JE finDeLinea
+
+        mov		rdi,msjElementoResulatdo
+        mov rsi,rax
+        call	printf
+        JMP mostrarSiguiente
+        finDeLinea:
+            mov rdi,saltoLinea
+            call puts
+        mostrarSiguiente:
+        inc qword[posicionY]
+
+        mov	rcx,qword[contadorY]			;Recupero el rcx para el loop
+        loop loopmostrarVectorActual
+    finMostrarVectorActual:
+
+    add		rsp,[plusRsp]   ;sub rsp,32
+    ret
+
+agregarVecActual:
+    mov		rcx,[posicionY]	;rcx = posicion
+	dec		rcx							;(posicion-1)
+	imul	ebx,ecx,2				;(posicion-1)*longElem
+   
+    mov	cx,word[pesoPaqueteActual]	
+    mov word[vecActual+ebx],cx
+    ret
+
+ordenarVectorActual:
+    call	checkAlign      ;no va en Windows
+    sub		rsp,[plusRsp]   ;sub rsp,32
+
+    seguirSwapeando:
+    mov qword[posicionY],1
+    mov rcx,[cantidadDeElementosVector] ;son N paquetes
+    DEC rcx;remuevo uno para hace el buble sort comparando current + next
+    CMP rcx,0;si es 0 termine, solo hay 1 elemento
+    JLE  finOrdenar
+    mov     byte[cambio],"N"
+    loopOrdenarVecActual:
+        mov		qword[contadorY],rcx 
+        ;comparo y swapeo
+        
+        mov		rcx,[posicionY]	;rcx = posicion
+	    dec		rcx							;(posicion-1)
+	    imul	ebx,ecx,2				;(posicion-1)*longElem
+
+        mov AX,word[vecActual+ebx]
+        CMP AX,word[vecActual+ebx+2]
+
+        JGE continuar
+        mov     byte[cambio],"Y"
+        mov CX,word[vecActual+ebx+2]
+        mov word[vecActual+ebx],CX
+        mov word[vecActual+ebx+2],AX
+
+        continuar:
+        inc qword[posicionY]
+        mov	rcx,qword[contadorY]			;Recupero el rcx para el loop
+        loop loopOrdenarVecActual
+
+        CMP byte[cambio],"Y"
+        JE seguirSwapeando
+
+    finOrdenar:
+    add		rsp,[plusRsp]   ;sub rsp,32
+    ret
+
+crearPaquetes:
+    call	checkAlign      ;no va en Windows
+    sub		rsp,[plusRsp]   ;sub rsp,32
+
+    CMP qword[cantidadDeElementosVector],0
+    JE finCearPaquetes
+
+    MOV qword[posicionSuma],1
+    
+    inicioCrearPaquete:
+
+    MOV word[suma],0
+    mov qword[posicionY],1
+    mov rcx,[cantidadDeElementosVector] ;son N paquetes
+
+     loopmSumarVectorActual:
+        MOV qword[contadorY],rcx
+
+        mov		rcx,[posicionY]	;rcx = posicion
+	    dec		rcx							;(posicion-1)
+	    imul	ebx,ecx,2				;(posicion-1)*longElem
+
+        mov		ax,[vecActual+ebx]	;ax = elemento (2 bytes / word)
+
+        mov word[actual],ax
+
+        MOV cx,word[suma]
+        ADD cx,word[actual]
+
+        CMP cx,15
+
+        JG  seguirSumando
+        
+        CMP cx,0
+
+        JLE seguirSumando
+
+        CMP cx,word[suma]
+
+        JE seguirSumando
+
+        MOV word[suma],cx
+
+        call sumarAlListado
+
+        seguirSumando:
+
+        inc qword[posicionY]
+        mov	rcx,qword[contadorY]			;Recupero el rcx para el loop
+        loop loopmSumarVectorActual
+
+        
+        CMP word[suma],0
+        JE  finCearPaquetes
+
+        mov		rcx,qword[posicionSuma]	;rcx = posicion
+	    dec		rcx							;(posicion-1)
+	    imul	ebx,ecx,2				;(posicion-1)*longElem
+
+        mov		word[resultado+ebx],-1	;ax = elemento (2 bytes / word)
+        inc qword[posicionSuma]
+        CMP word[suma],0
+        JNE inicioCrearPaquete
+
+    finCearPaquetes:
+
+    add		rsp,[plusRsp]   ;sub rsp,32
+    ret
 
 
+sumarAlListado:
+    call	checkAlign      ;no va en Windows
+    sub		rsp,[plusRsp]   ;sub rsp,32
 
+    
+    MOV word[vecActual+ebx],0
 
+    mov		rcx,qword[posicionSuma]	;rcx = posicion
+    dec		rcx							;(posicion-1)
+    imul	ebx,ecx,2				;(posicion-1)*longElem
+
+    MOV AX,word[actual]
+    MOV word[resultado+ebx],AX
+    
+
+    inc qword[posicionSuma]
+
+    add		rsp,[plusRsp]   ;sub rsp,32
+    ret
+
+    
 ;----------------------------------------
 ;----------------------------------------
 ; ****	checkAlign ****
